@@ -52,7 +52,7 @@ add_subdirectory(merge_exr)
 add_subdirectory(evaluate_segmentation)
 #add_subdirectory(evaluate_reconstruction)
 #add_subdirectory(evaluate_rgbd_camera)
-add_subdirectory(object_coordinate_renderer_wip)
+#add_subdirectory(object_coordinate_renderer_wip)
 add_subdirectory(green_screener)
 
 #add_subdirectory(trajectory_tool)
