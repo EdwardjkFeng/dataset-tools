@@ -17,6 +17,8 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>
 ==================================================================#
 using ArgParse
+using DelimitedFiles
+using LinearAlgebra
 
 s = ArgParseSettings()
 @add_arg_table s begin
@@ -85,21 +87,33 @@ yrange = []
 zrange = []
 for p in allTrajectoryPaths
   traj = readdlm(p)
-  xrange = collect(extrema([traj[:,2]; xrange]))
-  yrange = collect(extrema([traj[:,3]; yrange]))
-  zrange = collect(extrema([traj[:,4]; zrange]))
+  global xrange = collect(extrema([traj[:,2]; xrange]))
+  global yrange = collect(extrema([traj[:,3]; yrange]))
+  global zrange = collect(extrema([traj[:,4]; zrange]))
 end
 println("x-range of trajectories: $xrange")
 println("y-range of trajectories: $yrange")
 println("z-range of trajectories: $zrange")
 
+#function parseFloat(strings)
+#  map(x->(
+#    v = tryparse(Float64,x);
+#    isnothing(v) ? throw("Could not parse a part. Something is wrong with the data.")
+#              : get(v)),
+#    strings)
+#end
+
 function parseFloat(strings)
-  map(x->(
-    v = tryparse(Float64,x);
-    isnull(v) ? throw("Could not parse a part. Something is wrong with the data.")
-              : get(v)),
-    strings)
+    map(x -> begin
+        v = tryparse(Float64, x)
+        if isnothing(v)
+            throw("Could not parse a part. Something is wrong with the data.")
+        else
+            v
+        end
+    end, strings)
 end
+
 
 # Maps: exID => (gtID, [total, best-frame#, best-frame i-o-u])
 labelMapping = Dict{Int32, Pair{Int32, Array{Float64, 1}}}()
@@ -113,13 +127,13 @@ labelMapping = Dict{Int32, Pair{Int32, Array{Float64, 1}}}()
   for idEX in keys(exTrajectories)
     # Compute intersection-over-union for each gt-label, in order to find the best one
     println("Comparing label $idEX with ground-truth labels...")
-    labelIou = Array(Float64,(length(gtTrajectories),3))
-    row2ID = Array(Int32, length(gtTrajectories))
+    labelIou = labelIou = Array{Float64}(undef, length(gtTrajectories), 3)
+    row2ID = Array{Int32}(undef, length(gtTrajectories))
     j = 1
     for idGT in keys(gtTrajectories)
       println("==> GT-label $idGT")
-      iou = split(readstring(pipeline(
-        `evaluate_segmentation
+      iou = split(read(pipeline(
+        `../Release/bin/evaluate_segmentation
         	--dir $(DIRS["ex-masks"])
         	--dirgt $(DIRS["gt-masks"])
         	--prefixgt Mask
@@ -132,20 +146,21 @@ labelMapping = Dict{Int32, Pair{Int32, Array{Float64, 1}}}()
           --outtxt $(DIRS["out"])/$idEX-$idGT.txt
           -v`,
         `./eval-iou.awk`
-        )))
+        ), String))
       # [5] total, [12] best frame #, [16] best frame i-o-u
       labelIou[j,:] = parseFloat([iou[5] iou[12] iou[16]])
       row2ID[j] = idGT
       println(labelIou)
       j += 1
     end
-    jbest = indmax(labelIou[:,1])
+    jbest = argmax(labelIou[:,1])
     fbest = Int(labelIou[jbest,2])
     labelMapping[idEX] = Pair(row2ID[jbest], labelIou[jbest,:])
     lines = readlines("$(DIRS["out"])/$idEX-$(row2ID[jbest]).txt")
     write(iouFile, "# Label $idEX and GT-label $(row2ID[jbest])\n")
     write(iouFile, "\"Label $idEX\"\n")
-    write(iouFile, lines)
+    #write(iouFile, lines)
+    write(iouFile, join(lines, "\n"))
     write(iouFile, "\n\n")
     println("Best fit for label $idEX is $(row2ID[jbest]): Overall intersection-over-union is $(labelIou[jbest,1]) with best frame at $fbest.")
   end
@@ -158,7 +173,7 @@ labelMapping = Dict{Int32, Pair{Int32, Array{Float64, 1}}}()
 # end
 
 function plotTraj(out,gt,ex,hideLegend=false)
-  const border = 0.1
+  border = 0.1
   xborder = border * norm(xrange)
   yborder = border * norm(yrange)
   println("Plotting error between:")
@@ -187,16 +202,16 @@ for idEX in keys(exTrajectories)
   objectFile = joinpath(DIRS["ex-poses"], exTrajectories[idEX])
   gtobjectFile = joinpath(DIRS["gt-poses"], gtTrajectories[idGT])
   outobjectFile = "$FILE_CONV_TRAJ-$idEX.txt"
-  v = readstring(`convert_poses
+  v = read(`../Release/bin/convert_poses
         --frame $(Int(m[2]))
         --object $objectFile --camera $cameraFile
         --gtobject $gtobjectFile --gtcamera $gtcameraFile
-        --out $outobjectFile`)
+        --out $outobjectFile`, String)
 
   plotTraj("$FILE_CONV_PLOT-$idEX.pdf", gtobjectFile, outobjectFile, true)
   push!(plotPDFs, "$FILE_CONV_PLOT-$idEX.pdf")
 end
 rm("$FILE_CONV_PLOT-merged.pdf", force=true)
-run(`merge-pdfs.jl $(plotPDFs) $FILE_CONV_PLOT-merged.pdf`)
+run(`./merge-pdfs.jl $(plotPDFs) $FILE_CONV_PLOT-merged.pdf`)
 
-readstring(`gnuplot -e "datafile='$FILE_CONCAT'; outfile='$FILE_IOU_PLOT'" eval-iou.gp`)
+read(`gnuplot -e "datafile='$FILE_CONCAT'; outfile='$FILE_IOU_PLOT'" eval-iou.gp`, String)

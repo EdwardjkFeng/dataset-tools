@@ -26,6 +26,6 @@ tmpPath = "$(tempname())-merging.pdf"
 cp(ARGS[1], tmpPath)
 for i = 2:length(ARGS)
   run(`pdftk $tmpPath multibackground $(ARGS[i]) output $outPath`)
-  mv(outPath, tmpPath, remove_destination=true)
+  mv(outPath, tmpPath, force=true)
 end
 mv(tmpPath, outPath)
